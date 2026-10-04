@@ -1,0 +1,10 @@
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+python-multipart==0.0.20
+mutagen==1.47.0
+pyjwt==2.10.1
+pymongo==4.10.1
+cryptography==46.0.3
+segno==1.6.6
+pywebpush==2.0.3
+truststore==0.10.1
