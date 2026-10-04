@@ -1,0 +1,64 @@
+# Backend de Zorryfy en producción: API + Nginx (HTTPS) + Certbot, con MongoDB Atlas.
+#
+#   cd backend/deploy && docker compose -f docker-compose.prod.yml --env-file ../.env up -d --build
+#
+# No hay que editar este archivo: todo sale de backend/.env, que deploy/ec2-user-data.sh
+# genera desde AWS Secrets Manager. Variables: DOMAIN, MONGO_URI (Atlas, usuario readWrite),
+# JWT_SECRET_KEY, DATA_ENCRYPTION_KEY, BLIND_INDEX_KEY, VAPID_PRIVATE_KEY, VAPID_SUBJECT
+# y opcionales DEMO_MODE, CORS_ORIGINS.
+services:
+  zorryfy:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    image: zorryfy-backend:latest
+    restart: unless-stopped
+    environment:
+      MONGO_URI: ${MONGO_URI:?Falta MONGO_URI (Atlas)}
+      MONGO_DB: ${MONGO_DB:-zorryfy}
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY:?Falta JWT_SECRET_KEY}
+      DATA_ENCRYPTION_KEY: ${DATA_ENCRYPTION_KEY:?Falta DATA_ENCRYPTION_KEY}
+      DATA_ENCRYPTION_KEY_ID: ${DATA_ENCRYPTION_KEY_ID:-k1}
+      DATA_ENCRYPTION_OLD_KEYS: ${DATA_ENCRYPTION_OLD_KEYS:-}
+      BLIND_INDEX_KEY: ${BLIND_INDEX_KEY:?Falta BLIND_INDEX_KEY}
+      VAPID_PRIVATE_KEY: ${VAPID_PRIVATE_KEY:?Falta VAPID_PRIVATE_KEY}
+      VAPID_SUBJECT: ${VAPID_SUBJECT:-mailto:soporte@zorryfy.app}
+      DEMO_MODE: ${DEMO_MODE:-false}
+      CORS_ORIGINS: ${CORS_ORIGINS:-}
+      AUTH_TZ_OFFSET_HOURS: "-5"
+      TERMS_VERSION: ${TERMS_VERSION:-1.0}
+      MAX_UPLOAD_MB: "25"
+      MAX_TOTAL_UPLOAD_MB: "200"
+    expose:
+      - "8000"
+
+  nginx:
+    image: nginx:1.27-alpine
+    restart: unless-stopped
+    depends_on:
+      - zorryfy
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      DOMAIN: ${DOMAIN:?Falta DOMAIN}
+    volumes:
+      - ./nginx.conf.template:/etc/nginx/templates/default.conf.template:ro
+      - ./zorryfy-proxy.inc:/etc/nginx/conf.d/zorryfy-proxy.inc:ro
+      - certbot-www:/var/www/certbot:ro
+      - letsencrypt:/etc/letsencrypt:ro
+    # Recarga la configuración cada 6 h para tomar el certificado que renueva Certbot
+    command: ["/bin/sh", "-c", "(while :; do sleep 6h; nginx -s reload; done) & exec /docker-entrypoint.sh nginx -g 'daemon off;'"]
+
+  certbot:
+    image: certbot/certbot:v3.0.1
+    restart: unless-stopped
+    volumes:
+      - certbot-www:/var/www/certbot
+      - letsencrypt:/etc/letsencrypt
+    # Renueva cada 12 h (solo actúa cuando faltan menos de 30 días)
+    entrypoint: /bin/sh -c "trap exit TERM; while :; do certbot renew --webroot -w /var/www/certbot --quiet; sleep 12h & wait $${!}; done"
+
+volumes:
+  certbot-www:
+  letsencrypt:
