@@ -1,0 +1,39 @@
+# Nginx del BACKEND de Zorryfy (solo la API). La imagen oficial de nginx reemplaza ${DOMAIN}.
+#
+# Mismo dominio para frontend y backend: el navegador llama a /auth/... y /api/...
+# del mismo origen, sin CORS. En esta fase solo se publican las rutas de la API;
+# el frontend se agrega después en este mismo dominio (documentation.md §6.4).
+
+server {
+    listen 80;
+    server_name ${DOMAIN};
+
+    location /.well-known/acme-challenge/ { root /var/www/certbot; }
+    location / { return 301 https://$host$request_uri; }
+}
+
+server {
+    listen 443 ssl;
+    http2 on;
+    server_name ${DOMAIN};
+
+    ssl_certificate     /etc/letsencrypt/live/${DOMAIN}/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/${DOMAIN}/privkey.pem;
+    ssl_protocols TLSv1.2 TLSv1.3;
+
+    # Canciones de hasta 25 MB (varias por petición) y portadas de 2 MB
+    client_max_body_size 60m;
+
+    add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header X-Frame-Options "DENY" always;
+    add_header Referrer-Policy "same-origin" always;
+
+    # Rutas de la API (y la documentación interactiva para probarla: /docs)
+    location ~ ^/(api|auth)/ { include /etc/nginx/conf.d/zorryfy-proxy.inc; }
+    location ~ ^/(health|docs|openapi\.json)$ { include /etc/nginx/conf.d/zorryfy-proxy.inc; }
+    location = / { include /etc/nginx/conf.d/zorryfy-proxy.inc; }
+
+    # Todo lo demás pertenece al frontend, que todavía no está publicado aquí
+    location / { return 404; }
+}
